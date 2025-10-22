@@ -14,7 +14,7 @@ begin
 
 a(V::AbstractFockSpace, i::Int) = FockOperator(((i, false),), 1, V)
 adag(V::AbstractFockSpace, i::Int) = FockOperator(((i, true),), 1, V)
-n(V::AbstractFockSpace, i::Int) = FockOperator(((i, true), (i, false)), 1, V)
+ni(V::AbstractFockSpace, i::Int) = FockOperator(((i, true), (i, false)), 1, V)
 
 
 ############################################################
@@ -30,7 +30,7 @@ function density_onsite(state::AbstractFockState, sites::Dict, geometry::NTuple{
     V = typeof(state) == MultipleFockState ? state.states[1].space : state.space
     
     for s in keys(sites)
-        n = FockOperator(((sites[s], true), (sites[s], false)), 1. + 0im, V)
+        n = ni(V, sites[s])
         matrix[s...] = state * (n * state)
     end
     return matrix
@@ -104,34 +104,27 @@ Constructs the kinetic and interaction parts of the Bose-Hubbard Hamiltonian:
 - `Int`: on-site interaction term H_U
 """
 function Bose_Hubbard_H(V::U1FockSpace, lattice::Lattice, J::Number=1., U::Number=1.)
-    N = V.particle_number
-    D = length(V.geometry)
-    sites = lattice.sites
+    t_K = ManyBodyTensor(ComplexF64, V, 1, 1)
+    t_Int = ManyBodyTensor(ComplexF64, V, 2, 2)
+
     NN = lattice.NN
 
-    # Precompute hopping tensor
-    hoppings = zeros(ComplexF64, ntuple(i -> V.geometry[mod(i,D)+1], 2*D))
-    for site in keys(NN), n in NN[site]
-        index = (site..., n...)
-        hoppings[index...] = J
-    end 
-
-    Kin = ZeroFockOperator()
-    Int = ZeroFockOperator()
-
-    # Kinetic term
-    for site in keys(NN), n in NN[site]
-        index = (site..., n...)
-        Kin += FockOperator(((sites[site], true), (sites[n], false)), hoppings[index...], V)
+    # Filling conditions
+    neighbour(sites_tuple) = (sites_tuple[1] ∈ NN[sites_tuple[2]]) ? J : zero(J)
+    function onsite(sites_tuple::Tuple)
+        @assert length(sites_tuple)==4  
+        s1, s2, s3, s4 = sites_tuple 
+        return (s1 == s2) & (s2 == s3) & (s3 == s4) ? U : zero(U)
     end
+    
 
-    # Interaction term
-    for site in keys(NN)
-        i = sites[site]
-        Int += FockOperator(((i, true ), (i,true), (i, false), (i, false)), U, V)
-    end
+    t_K = fill_nbody_tensor(t_K, lattice, (neighbour,))
+    t_Int = fill_nbody_tensor(t_Int, lattice, (onsite,))
 
-    return Kin, Int
+    K = n_body_Op(V, lattice, t_K)
+    I = n_body_Op(V, lattice, t_Int)
+
+    return K, I
 end
 
 

@@ -1,5 +1,6 @@
 using Revise
-using FockSpace
+using QuantumFockCore
+using QuantumFockDynamics
 using Plots
 using Interpolations
 using LinearAlgebra
@@ -25,7 +26,7 @@ strob_ts = tuple(collect(t_i:(2π/ω): t_e)...);
 save_ts = tuple(collect(t_i:(2π/ω)/10: t_e)...);
 
 ## initialisation of lattice and hilbert space ##
-geometry = (20,)
+geometry = (10,)
 V = U1FockSpace(geometry, 1,1)
 states = all_states_U1_O(V)
 lattice = Lattice(geometry)
@@ -49,7 +50,7 @@ end
 function fonsite_2body(sites_tuple)
     s1, s2 = sites_tuple
     o = s1==s2 ? 1 : 0
-    return s1[1] * o * ω
+    return (s1[1]-1) * o * ω
 end
 
 
@@ -57,11 +58,15 @@ condition1 = (fhop_2body, )
 condition2 = (fonsite_2body,)
 
 ## make the tensors and with them the operators that form the Hamiltonian ##
-tens_hop = fill_nbody_tensor(V, lattice, 2, condition1)
-tens_onsite = fill_nbody_tensor(V, lattice, 2, condition2)
+t1 = ManyBodyTensor(ComplexF64, V, 1, 1)
+tens_hop = fill_nbody_tensor(t1, lattice, condition1)
 
-Hop = two_body_Op(V, lattice, tens_hop)
-H_onsite = two_body_Op(V, lattice, tens_onsite)
+t2 = ManyBodyTensor(ComplexF64, V, 1, 1)
+tens_onsite = fill_nbody_tensor(t2, lattice, condition2)
+
+
+Hop = n_body_Op(V, lattice, tens_hop)
+H_onsite = n_body_Op(V, lattice, tens_onsite)
 
 Hop_m = calculate_matrix_elements_parallel(states, Hop)
 H_onsite_m = calculate_matrix_elements_parallel(states, H_onsite)
@@ -85,7 +90,7 @@ sol = Time_Evolution_TD(gs_v, (ops, interps), (t_i,t_e), save_ts; rtol = 1e-9, a
 ## Plot the solution ##
 pl = plot(
     xlabel = "t",           # replace "units" with physical units if any
-    ylabel = "Center of Mass ", 
+    ylabel = "Center of Mass <λ> ", 
     title = "center of mass motion",
     legend = false,
     grid = true,
@@ -94,7 +99,7 @@ pl = plot(
 for s in eachindex(sol.t)[1:500]
     state = create_MFS(sol[s], states)
     dens = density_onsite(state, lattice.sites, geometry)
-    CoM = center_of_mass(dens)
+    CoM = center_of_mass(dens) .-1
     
     scatter!(pl, [sol.t[s]], CoM, marker=:o, color=:blue, markersize=2)
 end;

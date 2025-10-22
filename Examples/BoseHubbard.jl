@@ -1,17 +1,19 @@
 using Revise
-using FockSpace
-using Test
+using QuantumFockCore
+using QuantumFockDynamics
 using LinearAlgebra
 using Plots
 using ProgressMeter
-using KrylovKit
 using SparseArrays
+using KrylovKit
 
 
-############ Phase Diagram ####################
-juend=15
-L = 4
-Nrange = 1:15
+
+
+################### Phase Diagram ####################
+juend=10
+L = 5
+Nrange = 1:10
 jurange = 1:juend
 pd_gap = zeros(Nrange[end],jurange[end])
 pd = zeros(Nrange[end],jurange[end])
@@ -20,7 +22,7 @@ pd = zeros(Nrange[end],jurange[end])
 U = 1
 J = (ju*(1/juend)) * U
 N = n+1
-E_scale = J+ U*N
+E_scale = (J+ U*(N/L))/2
 
 geometry = (L,)
 D=length(geometry)
@@ -32,7 +34,7 @@ latt = Lattice(geometry)
 
 Kin, Int = Bose_Hubbard_H(V, latt, J, U)
 
-M = calculate_matrix_elements_parallel(states,H)
+M = calculate_matrix_elements_parallel(states,Kin + Int)
 @assert M == M'
 M_s = sparse(Hermitian(M))
 x₀ = rand(ComplexF64, size(M)[1])

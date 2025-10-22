@@ -1,19 +1,19 @@
 #include("C:/Users/loulamme/OneDrive - UGent/Documenten/Assistent ELIS/Code/synthdim/FockED/src/FockSpace.jl")
 using Revise
-using FockSpace
-using Test
+using QuantumFockCore
+using QuantumFockDynamics
 using LinearAlgebra
 using Plots
 using ProgressMeter
 
 spectrum = []
 
-N = 4
-geometry = (5,5)
+N = 1
+geometry = (2,2)
 D=length(geometry)
 
-V = U1FockSpace(prod(geometry),N,N)
-states = all_states_U1(geometry, V)
+V = U1FockSpace(geometry,N,N)
+states = all_states_U1_O( V)
 
 ind_v = lattice_vectorisation_map(geometry)
 NN = Lattice_NN(geometry; periodic=(false, false))
@@ -41,7 +41,7 @@ H = ZeroFockOperator()
 for site in keys(NN)
     for n in NN[site]
         index = (site..., n...)
-        H += FockOperator(((ind_v[site], true), (ind_v[n], false)), hoppings[index...])
+        H += FockOperator(((ind_v[site], true), (ind_v[n], false)), hoppings[index...], V)
     end
 end
 

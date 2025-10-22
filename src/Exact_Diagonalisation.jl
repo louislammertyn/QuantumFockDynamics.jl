@@ -96,6 +96,36 @@ function bounded_compositions(N::Int, L::Int, cutoff::Int; thread_threshold::Int
 end
 
 
+function basisFS(space::U1FockSpace; nodata=true, savedata=false)
+    dirpath = "./src/assets/states"
+    savename = "basis_u1_geom=$(join(space.geometry, 'x'))_cutoff=$(space.cutoff)_N=$(space.particle_number).jld2"
+    savepath = joinpath(dirpath, savename)
+
+    (nodata & !savedata) && return all_states_U1_O(space)
+    
+    # Create directory if it doesn't exist
+    if !isdir(dirpath)
+        mkpath(dirpath)
+    end
+
+    # Case 1: File exists and we want to use it
+    if isfile(savepath) && !nodata
+        data = load(savepath)
+        return data["states"]
+
+    # Case 2: File doesn't exist, but we want to save new data
+    elseif !isfile(savepath) && savedata
+        states = all_states_U1(space)
+        save(savepath, Dict("states" => states))
+        return states
+
+    # Case 3: We don’t want to use or save data (pure computation)
+    else
+        return all_states_U1_O(space)
+    end
+end
+
+
 function calculate_matrix_elements(states::Vector{AbstractFockState}, Ops::MultipleFockOperator)
     Op_matrix = zeros(ComplexF64, length(states), length(states))
     tmp = MutableFockState(states[1])
