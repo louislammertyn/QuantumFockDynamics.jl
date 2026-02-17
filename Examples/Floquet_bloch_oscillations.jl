@@ -1,7 +1,6 @@
 using Revise
 using FoSpDynamics
 using Plots
-using Interpolations
 using LinearAlgebra
 using OrdinaryDiffEq
 
@@ -16,10 +15,8 @@ ts = t_i:dt:t_e
 κ = 10 * Δ
 
 ## define time dependency and initialise the interpolation functions for the time evolution ##
-f_t(ts) = κ .* cos.(ω_d .*ts.+ϕ) ;
-triv(ts) = ones(ComplexF64,length(ts));
-interp_f_t = linear_interpolation(ts, f_t(ts));
-interp_trivial(t) = 1.;
+f_t(t) = κ * cos.(ω_d *t.+ϕ) ;
+triv(t) = one(ComplexF64);
 
 ## set the times at which to save the simulation steps 
 strob_ts = tuple(collect(t_i:(2π/ω_d): t_e)...);
@@ -68,8 +65,8 @@ tens_onsite = fill_nbody_tensor(t2, lattice, condition2)
 Hop = nbody_Op(V, lattice, tens_hop)
 H_onsite = nbody_Op(V, lattice, tens_onsite)
 
-Hop_m = calculate_matrix_elements_parallel(states, Hop)
-H_onsite_m = calculate_matrix_elements_parallel(states, H_onsite)
+Hop_m = calculate_matrix_elements( Hop,states)
+H_onsite_m = calculate_matrix_elements( H_onsite,states)
 
 H_0 = Hop_m + H_onsite_m
 
@@ -80,11 +77,11 @@ gs = create_MFS(gs_v, states)
 
 
 ## Time evolution where the lists indicate the time dependent functions and their corresponding operators ## 
-interps = [interp_trivial, interp_f_t]
-ops = [H_onsite_m, Hop_m]
+interps = (triv, f_t)
+ops = (H_onsite_m, Hop_m)
 
 typeof((t_i,t_e))
-sol = Time_Evolution_TD(gs_v, (ops, interps), (t_i,t_e), save_ts; rtol = 1e-9, atol = 1e-9, solver = Vern7())
+sol = Time_Evolution_TD(gs_v, ops, interps, (t_i,t_e), save_ts; rtol = 1e-9, atol = 1e-9, solver = Vern7())
 
 
 ## Plot the solution ##

@@ -7,7 +7,6 @@ using OrdinaryDiffEq
 using TensorOperations
 using SparseArrayKit
 using SparseArrays
-using Kronecker
 
 
 include("./TimeEv.jl")

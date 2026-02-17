@@ -4,9 +4,7 @@ version = "1.0.0-DEV"
 authors = ["Louis Lammertyn"]
 
 [deps]
-DifferentialEquations = "0c46a032-eb83-5123-abaf-570d42b7fbaa"
 FoSpCore = "c4c52a10-75be-47fa-9298-4f0d724bc661"
-Kronecker = "2c470bb0-bcc8-11e8-3dad-c9649493f05e"
 KrylovKit = "0b1a1467-8014-51b9-945f-bf0ae24f4b77"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 OrdinaryDiffEq = "1dea7af3-3e70-54e6-95c3-0bf5283fa5ed"
@@ -19,8 +17,6 @@ SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 TensorOperations = "6aa20fa7-93e2-5fca-9bc0-fbd0db3c71a2"
 
 [compat]
-DifferentialEquations = "7.16.1"
-Kronecker = "0.5.5"
 KrylovKit = "0.10.2"
 LinearAlgebra = "1.12.0"
 OrdinaryDiffEq = "6.102.1"
