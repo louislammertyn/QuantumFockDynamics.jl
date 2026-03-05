@@ -53,23 +53,68 @@ function Time_Evolution_ed(Ops_dict::Dict, t0::Float64, t1::Float64, δt::Float6
     return U
 end
 
-# ==========================================================
-# Time evolution using DifferentialEquations.jl (TI Hamiltonian)
-# ==========================================================
 """
-    Time_Evolution(init, H, tspan; rtol, atol, solver)
+    schrodinger!(dψ, ψ, H, t)
 
-Integrates the time-independent Schrödinger equation:
+In-place RHS for the time-independent Schrödinger equation:
 
-Arguments:
-- `init`: initial state vector
-- `H`: Hamiltonian matrix
-- `tspan`: tuple (t0, t1)
-- `rtol`, `atol`: solver tolerances
-- `solver`: ODE solver algorithm (default: Vern7)
+    dψ/dt = -i H ψ
 
-Returns:
-- `sol`: solution object from DifferentialEquations.jl
+# Arguments
+- `dψ::Vector{ComplexF64}`: output derivative vector.
+- `ψ::Vector{ComplexF64}`: current state vector.
+- `H::AbstractMatrix{ComplexF64}`: Hamiltonian matrix.
+- `t::Float64`: current time (unused).
+"""
+function schrodinger!(dψ::Vector{ComplexF64}, ψ::Vector{ComplexF64},
+                      H::AbstractMatrix{ComplexF64}, t::Float64)
+    mul!(dψ, H, ψ)
+    dψ .*= -1im 
+    return nothing
+end
+
+"""
+    von_neumann!(dρ_vec, ρ_vec, (tmp, H), t)
+
+In-place RHS for the time-independent von Neumann equation (vectorized density matrix):
+
+    dρ/dt = -i [H, ρ]
+
+# Arguments
+- `dρ_vec`: output derivative (flattened `N²` vector).
+- `ρ_vec`: current density matrix (flattened `N²` vector).
+- `(tmp, H)`: parameter tuple — `N×N` scratch buffer, Hamiltonian matrix.
+- `t::Float64`: current time (unused).
+"""
+function von_neumann!(dρ_vec, ρ_vec, (tmp, H), t)
+    N = size(H, 1)
+    ρ  = reshape(ρ_vec, N, N)
+    dρ = reshape(dρ_vec, N, N)
+    fill!(dρ_vec, 0.0 + 0.0im)
+
+    mul!(tmp, H, ρ)           # tmp = H*ρ
+    axpy!(-1im, tmp, dρ)      # dρ += -i * H*ρ
+
+    mul!(tmp, ρ, H)           # tmp = ρ*H
+    axpy!(1im, tmp, dρ)       # dρ -= -i * ρ*H
+    
+    return nothing
+end
+
+"""
+    Time_Evolution(init, H, tspan; rtol, atol, solver) -> sol
+
+Integrate the time-independent Schrödinger equation.
+
+# Arguments
+- `init::Vector{ComplexF64}`: initial state vector.
+- `H::AbstractMatrix{ComplexF64}`: Hamiltonian matrix.
+- `tspan::Tuple{Float64,Float64}`: `(t0, t1)` integration interval.
+- `rtol`, `atol`: solver tolerances (default: `1e-9`).
+- `solver`: ODE algorithm (default: `Vern7()`).
+
+# Returns
+- `sol`: solution object from `DifferentialEquations.jl`.
 """
 function Time_Evolution(init::Vector{ComplexF64}, H::AbstractMatrix{ComplexF64},
                         tspan::Tuple{Float64, Float64};
@@ -80,66 +125,87 @@ function Time_Evolution(init::Vector{ComplexF64}, H::AbstractMatrix{ComplexF64},
     return sol
 end
 
-
-# ==========================================================
-# Time-independent RHS for ODEProblem
-# ==========================================================
 """
-    schrodinger!(dψ, ψ, H, t)
+    Time_Evolution(init, H, basis, tspan; rtol, atol, solver) -> sol
 
-Time-independent Schrödinger equation RHS:
+Integrate the time-independent Schrödinger equation using a `MatrixFreeOperator`
+representation of a `MultipleFockOperator` Hamiltonian.
 
-    dψ/dt = -i H ψ
+# Arguments
+- `init::Vector{ComplexF64}`: initial state vector.
+- `H::MultipleFockOperator`: Hamiltonian as a Fock operator.
+- `basis::Vector{AbstractFockState}`: basis to build the transition representation.
+- `tspan::Tuple{Float64,Float64}`: `(t0, t1)` integration interval.
+- `rtol`, `atol`: solver tolerances (default: `1e-9`).
+- `solver`: ODE algorithm (default: `Vern7()`).
 
-Arguments:
-- `dψ`: derivative vector to update (output)
-- `ψ`: current state vector
-- `H`: Hamiltonian matrix
-- `t`: current time (ignored)
+# Returns
+- `sol`: solution object from `DifferentialEquations.jl`.
 """
-function schrodinger!(dψ::Vector{ComplexF64}, ψ::Vector{ComplexF64},
-                      H::AbstractMatrix{ComplexF64}, t::Float64)
-    dψ .= -1im * (H * ψ)
-    return nothing
+function Time_Evolution(init::Vector{ComplexF64}, H::MultipleFockOperator,
+                        basis::Vector{AbstractFockState},
+                        tspan::Tuple{Float64, Float64};
+                        rtol::Float64 = 1e-9, atol::Float64 = 1e-9,
+                        solver = Vern7())
+    H_mfo = transition_representation(H, basis)
+    return Time_Evolution(init, H_mfo, tspan; rtol=rtol, atol=atol, solver=solver)
 end
 
-# ==========================================================
-# Time evolution using DifferentialEquations.jl (TD Hamiltonian)
-# ==========================================================
 """
-    Time_Evolution_TD(init, ops_and_interps, tspan; rtol, atol, solver)
+    Time_Evolution_VN(init, H, tspan, tpoints; rtol, atol, solver) -> sol
 
-Integrates the time-dependent Schrödinger equation:
+Integrate the time-independent von Neumann equation for a density matrix:
 
-Arguments:
-- `init`: initial state vector
-- `ops_and_interps`: tuple of (operator matrices, interpolation functions)
-- `tspan`: tuple (t0, t1)
-- `rtol`, `atol`: solver tolerances
-- `solver`: ODE solver algorithm (default: Vern7)
+    dρ/dt = -i [H, ρ]
 
-Returns:
-- `sol`: solution object from DifferentialEquations.jl
+# Arguments
+- `init::Matrix{ComplexF64}`: initial density matrix.
+- `H::Matrix{ComplexF64}`: Hamiltonian matrix (dense, required for `ρ*H`).
+- `tspan::Tuple{Float64,Float64}`: `(t0, t1)` integration interval.
+- `tpoints::NTuple{M,Float64}`: times at which to save the solution.
+- `rtol`, `atol`: solver tolerances (default: `1e-9`).
+- `solver`: ODE algorithm (default: `Vern7()`).
+
+# Returns
+- `sol`: solution object from `DifferentialEquations.jl`.
 """
-function Time_Evolution_TD(init::Vector{ComplexF64},
-                           ops::NTuple{N, Matrix{ComplexF64}}, f_ts::Tuple{Vararg{<:Function, N}},
+function Time_Evolution_VN(init::Matrix{ComplexF64}, H::Matrix{ComplexF64},
                            tspan::Tuple{Float64, Float64}, tpoints::NTuple{M, Float64};
                            rtol::Float64 = 1e-9, atol::Float64 = 1e-9,
-                           solver = Vern7()) where {N, M}
-    prob = ODEProblem(schrodinger_TD!, init, tspan, (similar(init), ops, f_ts))
-    sol = solve(prob, solver; reltol=rtol, abstol=atol, save_everystep=false, saveat=tpoints)
+                           solver = Vern7()) where {M}
+    tmp = similar(init)
+    prob = ODEProblem(von_neumann!, vec(init), tspan, (tmp, H))
+    sol = solve(prob, solver; reltol=rtol, abstol=atol, save_everystep=false, saveat=collect(tpoints))
     return sol
 end
 
-function Time_Evolution_TD_VN(init::Matrix{ComplexF64},
-                           ops::NTuple{N, Matrix{ComplexF64}}, f_ts::Tuple{Vararg{<:Function, N}},
+"""
+    Time_Evolution_VN(init, H, basis, tspan, tpoints; rtol, atol, solver) -> sol
+
+Integrate the time-independent von Neumann equation using the dense matrix
+representation of a `MultipleFockOperator` Hamiltonian.
+
+# Arguments
+- `init::Matrix{ComplexF64}`: initial density matrix.
+- `H::MultipleFockOperator`: Hamiltonian as a Fock operator.
+- `basis::Vector{AbstractFockState}`: basis to build the matrix representation.
+- `tspan::Tuple{Float64,Float64}`: `(t0, t1)` integration interval.
+- `tpoints::NTuple{M,Float64}`: times at which to save the solution.
+- `rtol`, `atol`: solver tolerances (default: `1e-9`).
+- `solver`: ODE algorithm (default: `Vern7()`).
+
+# Returns
+- `sol`: solution object from `DifferentialEquations.jl`.
+"""
+function Time_Evolution_VN(init::Matrix{ComplexF64}, H::MultipleFockOperator,
+                           basis::Vector{AbstractFockState},
                            tspan::Tuple{Float64, Float64}, tpoints::NTuple{M, Float64};
                            rtol::Float64 = 1e-9, atol::Float64 = 1e-9,
-                           solver = Vern7()) where {N, M}
-    prob = ODEProblem(Von_Neumann!, init, tspan, (similar(init), ops, f_ts))
-    sol = solve(prob, solver; reltol=rtol, abstol=atol, save_everystep=false, saveat=tpoints)
-    return sol
+                           solver = Vern7()) where {M}
+    H_dense = Matrix{ComplexF64}(calculate_matrix_elements(H, basis))
+    return Time_Evolution_VN(init, H_dense, tspan, tpoints; rtol=rtol, atol=atol, solver=solver)
 end
+
 
 # ==========================================================
 # Time-dependent RHS for ODEProblem (DifferentialEquations.jl)
@@ -179,26 +245,76 @@ end
 
 function Von_Neumann!(dψ, ψ, (tmp, Ops, f_ts), t)
     N = size(Ops[1], 1)
-    O = reshape(ψ, N, N)          # read-only view of ψ
-    fill!(tmp, 0.0 + 0.0im)       # tmp buffer N×N
-    fill!(dψ, 0.0 + 0.0im)        # clear dψ vector
+    O = reshape(ψ, N, N)
+    dρ = reshape(dψ, N, N)
+    fill!(dψ, 0.0 + 0.0im)
 
     for (H, f) in zip(Ops, f_ts)
-        α = f(t)
-        
-        # compute H*O
-        mul!(tmp, H, O)
-        
-        dψ .+= α * tmp    # flatten to vector
+        α = -im * f(t)
 
-        # compute O*H
-        mul!(tmp, O, H)
-        dψ .-= α * tmp
+        mul!(tmp, H, O)          # tmp = H*O
+        axpy!(α, tmp, dρ)        # dρ += α * tmp  (no allocation)
+
+        mul!(tmp, O, H)          # tmp = O*H
+        axpy!(-α, tmp, dρ)       # dρ -= α * tmp
     end
 
-    dψ .*= -1im
     return nothing
 end
+
+# ==========================================================
+# Time evolution using DifferentialEquations.jl (TD Hamiltonian)
+# ==========================================================
+"""
+    Time_Evolution_TD(init, ops_and_interps, tspan; rtol, atol, solver)
+
+Integrates the time-dependent Schrödinger equation:
+
+Arguments:
+- `init`: initial state vector
+- `ops_and_interps`: tuple of (operator matrices, interpolation functions)
+- `tspan`: tuple (t0, t1)
+- `rtol`, `atol`: solver tolerances
+- `solver`: ODE solver algorithm (default: Vern7)
+
+Returns:
+- `sol`: solution object from DifferentialEquations.jl
+"""
+function Time_Evolution_TD(init::Vector{ComplexF64},
+                           ops::NTuple{N, AbstractMatrix{ComplexF64}}, f_ts::Tuple{Vararg{<:Function, N}},
+                           tspan::Tuple{Float64, Float64}, tpoints::NTuple{M, Float64};
+                           rtol::Float64 = 1e-9, atol::Float64 = 1e-9,
+                           solver = Vern7()) where {N, M}
+    prob = ODEProblem(schrodinger_TD!, init, tspan, (similar(init), ops, f_ts))
+    sol = solve(prob, solver; reltol=rtol, abstol=atol, save_everystep=false, saveat=tpoints)
+    return sol
+end
+
+function Time_Evolution_TD(init::Vector{ComplexF64},
+                           ops::NTuple{N, MultipleFockOperator}, f_ts::Tuple{Vararg{<:Function, N}}, basis::Vector{AbstractFockState},
+                           tspan::Tuple{Float64, Float64}, tpoints::NTuple{M, Float64};
+                           rtol::Float64 = 1e-9, atol::Float64 = 1e-9,
+                           solver = Vern7()) where {N, M}
+    ops_tr_rep = Vector{MatrixFreeOperator}()
+    for op in ops 
+        push!(ops_tr_rep, transition_representation(op, basis))
+    end
+    return Time_Evolution_TD(init, Tuple(ops_tr_rep), f_ts, tspan, tpoints; rtol=rtol, atol=atol, solver=solver) 
+end
+
+
+function Time_Evolution_TD_VN(init::Matrix{ComplexF64},
+                           ops::NTuple{N, AbstractMatrix{ComplexF64}}, f_ts::Tuple{Vararg{<:Function, N}},
+                           tspan::Tuple{Float64, Float64}, tpoints::NTuple{M, Float64};
+                           rtol::Float64 = 1e-9, atol::Float64 = 1e-9,
+                           solver = Vern7()) where {N, M}
+    prob = ODEProblem(Von_Neumann!, init, tspan, (similar(init), ops, f_ts))
+    sol = solve(prob, solver; reltol=rtol, abstol=atol, save_everystep=false, saveat=tpoints)
+    return sol
+end
+
+
+
 
 function Unitary_Ev(H::Matrix{ComplexF64}, ti::Float64, te::Float64)
     U = exp(-1im * H * (te-ti))
