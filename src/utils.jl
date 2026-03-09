@@ -18,3 +18,13 @@ end
 function combinations(v::Tuple, n::Int)
     return combinations(collect(v),n)
 end
+
+function Identity(n::Int)
+    M = zeros(ComplexF64, n, n)
+    for i in axes(M, 1)
+        M[i,i] +=1 
+    end
+    return M 
+end
+
+

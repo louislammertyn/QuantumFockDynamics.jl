@@ -16,6 +16,42 @@ a(V::AbstractFockSpace, i::Int) = FockOperator(((i, false),), 1, V)
 adag(V::AbstractFockSpace, i::Int) = FockOperator(((i, true),), 1, V)
 ni(V::AbstractFockSpace, i::Int) = FockOperator(((i, true), (i, false)), 1, V)
 
+############################################################
+# Single particle functionality
+############################################################
+
+function single_particle_sector(O::MultipleFockOperator)
+    o_ = ZeroFockOperator()
+    for op in O.terms 
+        if [k[1] for k in op.product] == [true, false]
+            o_ += op
+        end
+    end
+    return o_ 
+end
+
+function single_particle_matrix(O::MultipleFockOperator)
+    V = first(O.terms).space 
+    D = prod(V.geometry)
+    O_m = zeros(ComplexF64, D)
+    for op in O.terms 
+        if [k[2] for k in op.product] == [true, false]
+            i = op.product[1][1]
+            j = op.product[2][1]
+            O_m[i,j] = op.coefficient
+        end
+    end
+    return O_m
+end
+
+function single_particle_operator(M::Matrix{ComplexF64})
+    V = U1FockSpace((size(M)[1],), 1, 1)
+    O = ZeroFockOperator()
+    for i in axes(M,1), j in axes(M,2)
+        O += M[i,j] * adag(V, i) * a(V, j)
+    end
+    return O
+end
 
 ############################################################
 # On-site density operator
@@ -215,18 +251,18 @@ where ϕ_i^α=⟨i|ϕ^α⟩ are either:
 
 The matrix encoding the projection or transformation is denoted as:
 
-    M_αi = φ_i^α
+    M_iα = φ_i^α
 
 Please note the the i index labels the vectorised modes of the system and α labels the eigenstates |ϕ^α>
 """
 
 function transform(O::MultipleFockOperator, lattice::Lattice, modes::Matrix{ComplexF64})
     if size(modes,1) == size(modes,2)
-        @assert isapprox(modes * modes', I, atol=1e-12)
+        @assert isapprox(modes' * modes, I, atol=1e-12)
     end
 
     V = O.terms[1].space
-    new_geometry = (size(modes,1),)
+    new_geometry = (size(modes,2),)
     new_lattice = Lattice(new_geometry)
     new_V = V isa UnrestrictedFockSpace ? UnrestrictedFockSpace(new_geometry, V.cutoff) :
             V isa U1FockSpace         ? U1FockSpace(new_geometry, V.cutoff, V.particle_number) :
@@ -248,8 +284,8 @@ function transform(O::MultipleFockOperator, lattice::Lattice, modes::Matrix{Comp
 
         tnsrs_prod = Vector{SparseArray}()
         indices = Vector{Vector{Int64}}()
-        modes_sp = SparseArray(modes)
-        modes_adj_sp = SparseArray(conj.(modes))
+        modes_sp = SparseArray(modes' )
+        modes_adj_sp = SparseArray(conj.(modes'))
 
         for i in 1:codom
             push!(tnsrs_prod, modes_adj_sp)
@@ -281,15 +317,15 @@ If given a list of modes then it is assumed that the mode matrices correspond to
 the ϕ are now a product of functions with each factor corresponding to the transformation function of it's respective basis transformation
 """
 
-function transform(O::MultipleFockOperator, lattice::Lattice, modes::Tuple{Matrix{ComplexF64}})
+function transform(O::MultipleFockOperator, lattice::Lattice, modes::NTuple{M,AbstractMatrix{ComplexF64}}) where M
     for mode in modes
         if size(mode,1) == size(mode,2)
-            @assert isapprox(mode * mode', I, atol=1e-12)
+            @assert isapprox(mode' * mode, I, atol=1e-12)
         end     
     end
 
     V = O.terms[1].space
-    new_geometry = Tuple([size(mode,1) for mode in modes])
+    new_geometry = Tuple([size(mode,2) for mode in modes])
     new_lattice = Lattice(new_geometry)
     new_V = V isa UnrestrictedFockSpace ? UnrestrictedFockSpace(new_geometry, V.cutoff) :
             V isa U1FockSpace         ? U1FockSpace(new_geometry, V.cutoff, V.particle_number) :
@@ -298,10 +334,10 @@ function transform(O::MultipleFockOperator, lattice::Lattice, modes::Tuple{Matri
     tnsrs = extract_nbody_tensors(O, lattice)
     new_tnsrs = Vector{ManyBodyTensor}()
 
-    modes_vectorised = zeros(ComplexF64, prod(new_geometry), prod(lattice.geometry))
+    modes_vectorised = zeros(ComplexF64, prod(new_geometry), prod(V.geometry))
 
     for (s_old, s_old_v) in lattice.sites, (s_new, s_new_v) in new_lattice.sites
-        modes_vectorised[s_new_v, s_old_v] = prod([modes[i][s_new[i], s_old[i]] for i in eachindex(modes)] )
+       modes_vectorised[s_new_v, s_old_v] = prod([modes[i][s_old[i], s_new[i]] for i in eachindex(modes)])
     end
 
     for t_ in tnsrs
@@ -318,13 +354,14 @@ function transform(O::MultipleFockOperator, lattice::Lattice, modes::Tuple{Matri
         tnsrs_prod = Vector{SparseArray}()
         indices = Vector{Vector{Int64}}()
         modes_sp = SparseArray(modes_vectorised)
+        modes_adj_sp = SparseArray(conj.(modes_vectorised))
 
-        for i in 1:dom 
-            push!(tnsrs_prod, modes_sp)
+        for i in 1:codom 
+            push!(tnsrs_prod, modes_adj_sp)
             push!(indices, [new_tensor_indices[i], old_tensor_indices[i]])
         end
-        for i in dom+1:N
-            push!(tnsrs_prod, conj.(modes_sp))
+        for i in codom+1:N
+            push!(tnsrs_prod, modes_sp)
             push!(indices, [new_tensor_indices[i], old_tensor_indices[i]])
         end
         push!(tnsrs_prod, t_v)

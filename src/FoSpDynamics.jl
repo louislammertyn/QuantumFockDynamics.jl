@@ -19,7 +19,7 @@ include("./Thermal.jl")
 #####################################################################################################
 #####################################################################################################
 
-export combinations 
+export combinations, Identity
 
 #####################################################################################################
 #####################################################################################################
@@ -41,6 +41,7 @@ export Time_Evolution_ed,
 #####################################################################################################
 
 export a, adag, ni
+export single_particle_matrix, single_particle_sector, single_particle_operator
 export density_onsite, center_of_mass, one_body_ρ, density_flucs, momentum_density
 export Bose_Hubbard_H, delta, momentum_space_Op
 

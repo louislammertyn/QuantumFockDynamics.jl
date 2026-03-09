@@ -16,7 +16,8 @@ Nrange = 1:10
 jurange = 1:juend
 pd_gap = zeros(Nrange[end],jurange[end])
 pd = zeros(Nrange[end],jurange[end])
- 
+
+
 @showprogress for n in Nrange, ju in jurange
 U = 1
 J = (ju*(1/juend)) * U
@@ -27,7 +28,7 @@ geometry = (L,)
 D=length(geometry)
 
 V = U1FockSpace(geometry,N,N)
-states = basisFS(V)
+states = all_states_U1(V)
 
 latt = Lattice(geometry)
 
