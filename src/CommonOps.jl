@@ -147,16 +147,16 @@ function Bose_Hubbard_H(V::U1FockSpace, lattice::Lattice, J::Number=1., U::Numbe
     NN = lattice.NN
 
     # Filling conditions
-    neighbour(sites_tuple) = (sites_tuple[1] ∈ NN[sites_tuple[2]]) ? J : zero(J)
+    neighbour(sites_tuple) = (sites_tuple[1] ∈ NN[sites_tuple[2]]) ? -J : zero(J)
     function onsite(sites_tuple::Tuple)
         @assert length(sites_tuple)==4  
         s1, s2, s3, s4 = sites_tuple 
-        return (s1 == s2) & (s2 == s3) & (s3 == s4) ? U : zero(U)
+        return (s1 == s2) & (s2 == s3) & (s3 == s4) ? U / 2 : zero(U)
     end
     
 
-    t_K = fill_nbody_tensor(t_K, lattice, (neighbour,))
-    t_Int = fill_nbody_tensor(t_Int, lattice, (onsite,))
+    t_K = fill_nbody_tensor(t_K, lattice, (neighbour,); support=NN_tensor_indices(lattice))
+    t_Int = fill_nbody_tensor(t_Int, lattice, (onsite,); support=Onsite_tensor_indices(lattice, 4))
 
     K = nbody_Op(V, lattice, t_K)
     I = nbody_Op(V, lattice, t_Int)
@@ -388,6 +388,19 @@ function reduce_terms(Op::MultipleFockOperator, term_condition::Function)
     end
     return reduced_Op
 end
+
+############################################################
+# Common transformation wavefunctions 
+############################################################
+
+function bloch_matrix(L::Int)
+    M = Matrix{ComplexF64}(undef, L, L)
+    for k in 0:L-1, r in 0:L-1
+        M[k+1, r+1] = exp(im * 2π * k * r / L) / sqrt(L)
+    end
+    return M
+end
+
 ############################################################
 # End of Fock operator utilities
 ############################################################

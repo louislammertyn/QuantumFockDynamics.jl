@@ -13,6 +13,8 @@ include("./utils.jl")
 include("./ED.jl")
 include("./TimeEv.jl")
 include("./CommonOps.jl")
+include("./MeanField.jl")
+include("./Bogoliubov.jl")
 include("./Thermal.jl")
 
 
@@ -43,7 +45,7 @@ export Time_Evolution_ed,
 export a, adag, ni
 export single_particle_matrix, single_particle_sector, single_particle_operator
 export density_onsite, center_of_mass, one_body_ρ, density_flucs, momentum_density
-export Bose_Hubbard_H, delta, momentum_space_Op
+export Bose_Hubbard_H, delta, momentum_space_Op, bloch_matrix
 
 #####################################################################################################
 #####################################################################################################
@@ -52,6 +54,24 @@ export all_states_U1, all_states_U1_O, bounded_compositions, basisFS
 export calculate_matrix_elements
 export tuple_vector_equal, sparseness, diagonalise_KR, MB_tensor, Entanglement_Entropy
 export transform, reduce_terms
+
+#####################################################################################################
+#####################################################################################################
+
+export MFMonomial, MF, MFeq
+export construct_MF, construct_eoms
+export eval_MF
+export GPE!
+export make_normalisation_cb, make_convergence_cb
+export get_mf_groundstate
+export mf_time_evolution
+export get_μ
+
+#####################################################################################################
+#####################################################################################################
+
+export BogoliubovRep, construct_BogoliubovRep, Bogoliubov_spectrum, sort_bg, Bogoliubov_gs, plot_Bogoliubov_spectrum
+export J 
 
 #####################################################################################################
 #####################################################################################################

@@ -15,13 +15,17 @@ struct BogoliubovRep
     Δ::Matrix{ComplexF64} 
     ψ::Vector{ComplexF64}
     μ::Float64
+    spectrum::Vector{ComplexF64}
+    U_bog::Matrix{ComplexF64}
+    V_bog::Matrix{ComplexF64}
 end
 
 function construct_BogoliubovRep(H::MultipleFockOperator, ψ::Vector{ComplexF64})
     @assert H - dagger_FO(H) == ZeroFockOperator() "Bogoliubov representation is only defined for self adjoint operators"
    
-     H_mf = construct_MF(H)
-    μ = get_μ(H_mf, ψ)
+    H_mf = construct_MF(H)
+    eoms = construct_eoms(H)
+    μ = get_μ(eoms, ψ)
 
     V = first(H.terms).space
     geometry = V.geometry 
@@ -34,9 +38,9 @@ function construct_BogoliubovRep(H::MultipleFockOperator, ψ::Vector{ComplexF64}
             type = [x[2] for x in op_string]
             ids = [x[1] for x in op_string]
             if type == [true, false]
-                h[ids...] += term.coefficient / 2
+                h[ids...] += term.coefficient 
             elseif type ==[true, true]
-                Δ[ids... ] += term.coefficient 
+                Δ[ids... ] += term.coefficient *2
             elseif type == [false, false]
                 nothing  # aᵢaⱼ terms → contribute to Δ* block, determined by Δ via H = H†
             elseif type == [false, true]
@@ -45,10 +49,16 @@ function construct_BogoliubovRep(H::MultipleFockOperator, ψ::Vector{ComplexF64}
             
 
         elseif length(op_string) > 2
-            for c in combinations(1:length(op_string), 2)
+            for c in combinations(collect(1:length(op_string)), 2)
                 rem = setdiff(1:length(op_string), c)
                 type = [op_string[id][2] for id in c]
                 ids = [op_string[id][1] for id in c]
+
+                if type == [false, false]
+                    continue  # aᵢaⱼ terms → contribute to Δ* block, determined by Δ via H = H† (see later in loop)
+                elseif type == [false, true]
+                    continue  # aᵢaⱼ† terms → contribute to h* block, determined by h via H = H† (see later in loop)
+                end
 
                 coeff = term.coefficient 
                 for i in rem 
@@ -60,122 +70,219 @@ function construct_BogoliubovRep(H::MultipleFockOperator, ψ::Vector{ComplexF64}
                     end
                 end
                 if type == [true, false]
-                    h[ids...] += coeff / 2
+                    h[ids...] += coeff 
                 elseif type ==[true, true]
-                    Δ[ids... ] += coeff 
-            
-                elseif type == [false, false]
-                    nothing  # aᵢaⱼ terms → contribute to Δ* block, determined by Δ via H = H†
-                elseif type == [false, true]
-                    nothing  # aᵢaⱼ† terms → contribute to h* block, determined by h via H = H†
+                    Δ[ids... ] += coeff * 2
                 end
             end
         end
     end
 
-    Δ = (Δ + Transpose(Δ)) / 2
+    Δ = (Δ + transpose(Δ)) / 2
 
     for i in axes(h, 1)
         h[i, i] -= μ
     end
 
     @assert norm(h - h') < 1e-10            "h must be Hermitian"
-    @assert norm(Δ - transpose(Δ)) < 1e-10  "Δ must be symmetric"
 
-            
-    return BogoliubovRep(h, Δ, ψ, μ)
+    return BogoliubovRep(h, Δ, ψ, μ, zeros(ComplexF64, size(h)[1] *2), zeros(ComplexF64, size(h)),zeros(ComplexF64, size(h)))
 end
 
-function construct_BogoliubovRep(H::MultipleFockOperator)
+function construct_BogoliubovRep(H::MultipleFockOperator, N::Int=1)
     H_mf = construct_MF(H)
-    ψ = get_mf_groundstate(H_mf)
+    eoms = construct_eoms(H)
+    V = first(H.terms).space 
+    modes = prod(V.geometry)
+    ψ_init = rand(ComplexF64, modes)
+    ψ_init ./= (norm(ψ_init) / sqrt(N))
+    ψ = get_mf_groundstate(ψ_init, H_mf, eoms, N)
     return construct_BogoliubovRep(H, ψ)
 end
 
-
-function bogoliubov_spectrum(BogoliubovRep::MultipleFockOperator, ψ::Vector{ComplexF64}, μ::Float64)
-    (; g, U, λmax, frame) = params
-    n = (λmax+1)
-    #U = npzread(joinpath(root, "data", "precompute", "hermite.npy"))[1:n, 1:n, 1:n, 1:n]
-    h = zeros(ComplexF64, aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa)
-    @tullio A[i, j] := g * U[i, k, l, j] * psi[k]' * psi[l]
-    @tullio A[i, j] += g * U[i, k, j, l] * psi[k]' * psi[l]
-    @tullio A[i, j] += g * U[k, i, l, j] * psi[k]' * psi[l]
-    @tullio A[i, j] += g * U[k, i, j, l] * psi[k]' * psi[l]
-    @tullio B[i, j] := g * U[i, j, k, l] * psi[k] * psi[l]
-
-    @assert isapprox(A, adjoint(A)) "The interaction term is not hermitian"
-    mu = μ * diagm(ones(n))
-    if frame == RotatingFrame
-        
-        ham = Ham_Generator(params, 0) - mu
-        A += (ham)
-        A .*= 1/2
-        @assert isapprox(A, adjoint(A))  "the hamiltonian is not Hermitian"
-        #println(ham)
-    else
-        A += diagm((1:(params.λmax+1)).- 1) - mu
-    end
+function Bogoliubov_spectrum(H_B::BogoliubovRep)
     
-    #sort the vectors and eigenvalues such that the symplectic structure satisfied
-    if g != 0
-        res = eigen(vcat(hcat(A, B), hcat(-conj.(B), -conj.(A))))
-        vals, vecs = sort_bg(res.values, res.vectors, params.λmax+1)
-    else 
-        res = eigen(A)
-        res2 = eigen(-conj.(A))
-        vectors = zeros(ComplexF64, 2*n,2*n)
-        vectors[1:n, 1:n] = res.vectors 
-        vectors[n+1:2*n,n+1:2*n ] = res2.vectors
-        vals, vecs = vcat(res.values, res2.values) , vectors
+    A = H_B.h 
+    B = H_B.Δ
+    ψ = H_B.ψ
+    D = size(A)[1]
+
+    res = eigen(vcat(hcat(A, B), hcat(-conj.(B), -conj.(A))))
+
+    # --- filter and normalize zero modes ---
+    threshold = 1e-5
+    nonzero_idx = findall(i -> abs(res.values[i]) > threshold, 1:2D)
+    zero_idx    = setdiff(1:2D, nonzero_idx)
+    n_zero      = length(zero_idx) ÷ 2
+    D_red       = D - n_zero
+    println(zero_idx)
+
+    # normalize zero mode vectors to analytic form (ψ, -ψ*) / norm
+    zero_vecs = zeros(ComplexF64, 2D, 2*n_zero)
+    for (k, i) in enumerate(zero_idx[1:n_zero])
+        u = res.vectors[1:D, i]
+        c = norm(u)
+        zero_vecs[1:D,     k] .= ψ ./ norm(ψ)
+        zero_vecs[D+1:end, k] .= -conj.(ψ) ./ norm(ψ)
+        @info "Zero mode $k: removed scale factor |c|=$(c)"
     end
-    for es in vals
-        if !iszero(imag(es))
+    for (k, i) in enumerate(zero_idx[n_zero+1:end])
+        zero_vecs[1:D,     n_zero+k] .=  conj.(ψ) ./ norm(ψ)
+        zero_vecs[D+1:end, n_zero+k] .= -ψ ./ norm(ψ)
+    end
+
+    vals = res.values[nonzero_idx]
+    vecs = res.vectors[:, nonzero_idx]
+    # --------------------------
+
+    vals, vecs = sort_bg(vals, vecs, D_red)
+    vals, vecs = symplectic_orthogonalise(vals, vecs)
+
+    for (i, es) in enumerate(vals)
+        if !isapprox(imag(es), 0; atol=1e-8)
             @warn "nonzero imaginary part with energy $es"
         end
     end
     
-    # Normalisation of the eigenvectors such that the symplectic condition is satisfied
     neg_norm = []
-    @views for i in 1:2*n 
-        del = (norm(vecs[1:n,i])^2 - norm(vecs[n+1:2*n,i])^2) * (i>n ? -1 : 1)
+    @views for i in 1:2*D_red
+        del = (norm(vecs[1:D,i])^2 - norm(vecs[D+1:2*D,i])^2) * (i > D_red ? -1 : 1)
         if del < 0
             push!(neg_norm, i)
             @warn "vector $i gives negative norm with energy $(vals[i])"
             del *= -1
         end
         @assert del > 0 "The diagonalisation is not compatible with a bogoliubov transform for vector $i the energy is given by $(vals[i]) for norm $del"        
-        vecs[:,i] .*= 1/ sqrt(del)  
-        vals[i] *= 1/ sqrt(del) 
-        
+        vecs[:,i] .*= 1 / sqrt(del)  
     end
     
-    # in case of negative energy modes, rearrange again to ensure symplectic condition
     for i in neg_norm
-        if i > n 
+        if i > D_red
             break
         end
-        vecs[:, i], vecs[:, i+n] = copy(vecs[:, i+n]), copy(vecs[:, i])
-        vals[i], vals[i+n] = vals[i+n], vals[i]
+        vecs[:, i], vecs[:, i+D_red] = copy(vecs[:, i+D_red]), copy(vecs[:, i])
+        vals[i], vals[i+D_red] = vals[i+D_red], vals[i]
     end
 
-    #check symplectic condition
-    I_n = diagm(ones(params.λmax+1))  # Create n x n identity matrix
-    J = [I_n zeros(params.λmax+1,params.λmax+1); zeros(params.λmax+1,params.λmax+1) -I_n]
-    
-    @assert isapprox(vecs * J * vecs', J) "The symplectic condition is not satisfied by this diagonalisation"
-    
-
-    return (
-        spectrum = vals,
-        u=vecs[1:n, 1:n],
-        v=vecs[1:n, n+1:end],
-        vec_matrix = vecs,
-        gs=psi
+    @assert isapprox(vecs' * J(D) * vecs, J(D_red); atol=sqrt(D_red) * eps() * 1e4) "The symplectic condition is not satisfied by this diagonalisation"
+    # --- add zero modes back ---
+    # full vecs: [zero_pos | nonzero_pos | zero_neg | nonzero_neg]
+    full_vecs = hcat(
+        zero_vecs[:, 1:n_zero],          # positive zero modes
+        vecs[:, 1:D_red],                # positive nonzero modes
+        zero_vecs[:, n_zero+1:end],      # negative zero modes
+        vecs[:, D_red+1:end]             # negative nonzero modes
     )
+
+    full_vals = vcat(
+        zeros(ComplexF64, n_zero),
+        vals[1:D_red],
+        zeros(ComplexF64, n_zero),
+        vals[D_red+1:end]
+    )
+
+    H_B.spectrum .= full_vals
+    H_B.U_bog .= full_vecs[1:D,    1:D]
+    H_B.V_bog .= full_vecs[D+1:end, 1:D]
+
+    return H_B
 end
 
-function plot_spectrum(res, N, xs=-15.0:0.1:15.0, bdg_idx=1:3, howmany=3)
+
+function J(D::Int)
+    I_n = diagm(ones(D))  # Create n x n identity matrix
+    j = [I_n zeros(D,D); zeros(D,D) -I_n]
+    return j 
+end
+
+
+function sort_bg(ϵ, ψ, n)
+    ψ = hcat(ψ[:,n+1:end], ψ[:,1:n])
+    ϵ = vcat(ϵ[n+1:end], ϵ[1:n])
+    
+    ψ_ = similar(ψ)
+    ϵ_ = similar(ϵ)
+    matched = falses(2n)  # track which j indices have been used
+
+    ψ_[:, 1:n] = ψ[:, 1:n]
+    ϵ_[1:n] = ϵ[1:n]
+
+    for i in 1:n
+        best_j = -1
+        best_err = Inf
+        for j in n+1:2n
+            if matched[j]
+                continue
+            end
+            # check symplectic partner condition
+            
+            err = abs(ϵ[i] + conj(ϵ[j]))
+            if err < best_err
+                best_err = err
+                best_j = j
+            end
+        
+        end
+        if best_j == -1 || best_err > 1e-6
+            error("No symplectic partner found for mode $i, best error $best_err")
+        end
+        matched[best_j] = true
+        ψ_[:, i+n] = ψ[:, best_j]
+        ϵ_[i+n] = ϵ[best_j]
+    end
+    return ϵ_, ψ_
+end
+
+function group_degenerate_blocks(ϵ, ψ)
+    deg_blocks = Vector{Matrix{ComplexF64}}()
+    block = false
+    block_m = [ψ[:,1]]
+    for i in 2:length(ϵ)
+        if  isapprox(ϵ[i], ϵ[i-1]; atol=1e-8)
+            block = true 
+        else 
+            block=false 
+        end
+
+        if !block
+            block_m = hcat(block_m...)
+            push!(deg_blocks, block_m)
+            block_m = []
+        end
+        push!(block_m, ψ[:,i])
+    end
+    block_m = hcat(block_m...)
+    push!(deg_blocks, block_m)
+
+    return deg_blocks
+end
+
+
+function orthogonalise_degenerate_blocks!(deg_blocks::Vector)
+    for (i,deg_b) in enumerate(deg_blocks)
+        D = div(size(deg_b)[1] ,2)
+        S = deg_b' * J(D) * deg_b 
+        es, vs = eigen(Hermitian(S))
+        for e in es 
+            if isapprox(e, 0)
+                @warn "?"
+            end
+        end
+        deg_blocks[i] =  deg_b * vs
+    end
+    return deg_blocks
+end
+
+function symplectic_orthogonalise(ϵ, ψ)
+    deg_blocks = group_degenerate_blocks(ϵ, ψ)
+    deg_blocks = orthogonalise_degenerate_blocks!(deg_blocks)
+    ψ = hcat(deg_blocks...)
+    return ϵ, ψ 
+end
+
+
+
+function plot_Bogoliubov_spectrum(res, N, xs=-15.0:0.1:15.0, bdg_idx=1:3, howmany=3)
     λmax = length(res.spectrum) ÷ 2 - 1
     hs = hermite.(0:λmax, xs')
     omegas = real.(res.spectrum)[1:(isnothing(howmany) ? end : howmany)] ./ N
@@ -183,13 +290,12 @@ function plot_spectrum(res, N, xs=-15.0:0.1:15.0, bdg_idx=1:3, howmany=3)
     spectrum = scatter(omegas, zeros(length(omegas)), ylims=[-0.25, 0.25], c=1, lab="")
     vline!(omegas, ls=:dash, c=1, lw=1.5, lab="")
     hline!([0], c=:black, ls=:solid, lab="")
-    plot!(framestyle=:box, legend=:topright, xlabel=L"|E_{BdG}|/\hbar\omega" ) #xticks=floor(Int, minimum(omegas)):ceil(Int, maximum(omegas))
+    plot!(framestyle=:box, legend=:topright, xlabel="|Eᵦ|/ħω" ) #xticks=floor(Int, minimum(omegas)):ceil(Int, maximum(omegas))
 
     #mf = plot(xs, vec(abs2.(sum(res.gs .* hs, dims=1))), framestyle=:box, lab=L"\Psi_0(x)", lw=2)
 
     #us = [plot(xs, vec(abs2.(sum(res.u[:, i] .* hs, dims=1))), framestyle=:box, lab=latexstring("u_$i(x)"), lw=1.5) for i in bdg_idx]
     #vs = [plot(xs, vec(abs2.(sum(res.v[:, i] .* hs, dims=1))), framestyle=:box, lab=latexstring("v_$i(x)"), lw=1.5) for i in bdg_idx]
-
     #l = @layout [
         #a{0.2h}; [grid(length(bdg_idx), 1) b{0.5w} grid(length(bdg_idx), 1)]
     #]
@@ -198,72 +304,21 @@ function plot_spectrum(res, N, xs=-15.0:0.1:15.0, bdg_idx=1:3, howmany=3)
     display(pl)
 end
 
+function Bogoliubov_groundstate(H::BogoliubovRep; third=false)
 
+    res = bogoliubov_spectrum(H)
 
-function sort_bg(ϵ, ψ, n)
-    #function that sorts the eigenvectors and eigenvalues according to (u, v; v* u*) and sorted from small to large Re(eigenvalues)
-    #note that in case of negative energy modes these will be in the wrong half of the columns, correction is done when normalising
-    ψ = hcat(ψ[:,n+1:end],ψ[:,1:n] )
-    ϵ = vcat(ϵ[n+1:end],ϵ[1:n] )
-    ψ_ = similar(ψ)
-    ϵ_ = similar(ϵ)
-
-    ψ_[:, 1:n] = ψ[:,1:n]
-    ϵ_[1:n] = ϵ[1:n]
-    for i in 1:n , j in n+1:2n
-        if isapprox(real(ϵ[i]), 0 ,atol=1e-5) && isapprox(real(ϵ[j]), 0, atol=1e-5)
-           
-            ψ_[:,i+n]= ψ[:,j]
-            ϵ_[i+n] = ϵ[j]
-        end
-        if isapprox(ϵ[i],-conj(ϵ[ j] ), atol=1e-5)
-            
-            ψ_[:,i+n]= ψ[:,j]
-            ϵ_[i+n] = ϵ[j]
-            
-        end
-
-    end
-    return ϵ_, ψ_
-end
-
-function BG_groundstate(params, hs, xs; Floquet=false)
-    if Floquet
-        gs_params = initialize_params(frame=RotatingFrame,
-            Δ = params.Δ, 
-            κ = params.κ, 
-            g = params.g, 
-            ϕ = params.ϕ, 
-            pot = params.pot, 
-            neighbours = params.neighbours,
-            λmax = params.λmax,
-            num_particles=params.num_particles
-            )
-    else
-        gs_params = initialize_params(frame=params.frame,
-                Δ = params.Δ, 
-                κ = 0, 
-                g = params.g, 
-                ϕ = params.ϕ, 
-                pot = params.pot, 
-                neighbours = params.neighbours,
-                λmax = params.λmax,
-                num_particles=params.num_particles
-                )
-    end
-    ψᵢ = psi_sloped(gs_params)
-    ψ₀= get_ground_state(ψᵢ,gs_params)
-    μ = get_mu(ψ₀, gs_params)
-    res = bogoliubov_spectrum(μ,gs_params, ψ₀, hs)
-    #plot_spectrum(res, params.num_particles, xs,1:3)
-
-    ##### initialise the cumulants ######
-    α = ψ₀ 
+    # Set appropriate values A = ⟨a†a⟩, B = ⟨aa⟩ and T=⟨a†aa⟩
+    α = H_B.ψ 
     A = res.v' * res.v 
     B = -1 .* (res.u' * res.v)
     @assert isapprox(A , A') "A is not hermitian"
     @assert isapprox(B , Transpose(B)) "B is not symmetric"
-    T = zeros(ComplexF64, params.λmax + 1, params.λmax + 1, params.λmax + 1)
 
-    return [α, A, B, T], res.spectrum
+    if third
+        T = zeros(ComplexF64, params.λmax + 1, params.λmax + 1, params.λmax + 1)
+        return [α, A, B, T], res.spectrum
+    else
+        return [α, A, B], res.spectrum
+    end
 end
