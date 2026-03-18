@@ -115,7 +115,7 @@ function Bogoliubov_spectrum(H_B::BogoliubovRep)
     zero_idx    = setdiff(1:2D, nonzero_idx)
     n_zero      = length(zero_idx) ÷ 2
     D_red       = D - n_zero
-    println(zero_idx)
+   
 
     # normalize zero mode vectors to analytic form (ψ, -ψ*) / norm
     zero_vecs = zeros(ComplexF64, 2D, 2*n_zero)

@@ -27,4 +27,12 @@ function Identity(n::Int)
     return M 
 end
 
+function fold(k::Float64, a::Float64=1.)
+    return k > π/a ? -(2π/a - k) : k
+end
+
+function folded_k_from_modes(ks::Vector{Int}, L::Int)
+    ks .*= 2*π/L
+    return fold.(ks)
+end
 

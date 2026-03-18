@@ -168,28 +168,84 @@ display(plot(p1, p2, p3, layout=(1,3), size=(2200,700)))
 ###### Bogoliubov in Frequency space ######
 
 U = 1.
-J = 4. # sweep J/U
+J = 4. 
 gaps = []
+Ls =  [ 2, 4, 6, 8, 10, 12, 14, 16, 18, 20]
 
-for l in [ 2, 4, 6, 8, 10, 12, 14, 16, 18, 20]
-L = l
-N = div(l,2)
+for l in Ls
+    L = l
+    N = div(l, 2)
 
+    geometry = (L,)
+    latt = Lattice(geometry; periodic=(true,))
+    V = U1FockSpace(geometry, N, N)
 
-geometry = (L,)
-latt= Lattice(geometry;periodic=(true,))
-V= U1FockSpace(geometry,N, N)
+    K, Int = Bose_Hubbard_H(V, latt, J, U)
+    H = K + Int
+    Hk = transform(H, latt, bloch_matrix(L))
+    ks = [m * 2π / L for m in 0:L-1]
 
-K, Int = Bose_Hubbard_H(V, latt, J, U)
+    H_k_bog = construct_BogoliubovRep(Hk, N)
+    H_k_bog = Bogoliubov_spectrum(H_k_bog)
+    push!(gaps, real.(H_k_bog.spectrum[2]))
 
-H = K + Int 
-Hk = transform(H, latt, bloch_matrix(L))
-ks = [m * 2*π/l for m in 1:l]
+    if l == 20
+        E_bog(k, J, U, n0) = sqrt(2J * (1 - cos(k)) * (2J * (1 - cos(k)) + 2U * n0))
+        k_sorted = sort(fold.(ks))
 
-H_k_bog = construct_BogoliubovRep(Hk, N)
-H_k_bog = Bogoliubov_spectrum(H_k_bog)
-push!(gaps, real.(H_k_bog.spectrum[2]))
+        pl_disp = plot(
+            k_sorted, E_bog.(k_sorted, J, U, N / L) / J;
+            color = :steelblue,
+            linewidth = 2,
+            label = "analytical",
+            xlabel = "k",
+            ylabel = "E(k) (ħJ)",
+            title = "Bogoliubov Dispersion  (L=$l, J/U=$(J/U))",
+            framestyle = :box,
+            xticks = ([0, π/2, π], ["0", "π/2", "π"]),
+            xlims = (0, π),
+            ylims = (0, Inf),
+            legend = :topleft,
+            grid = true,
+            gridalpha = 0.3,
+            size = (600, 400),
+            dpi = 150,
+        )
+
+        for (i, e) in enumerate(H_k_bog.spectrum[1:l])
+            label = i == 1 ? "numerical" : ""
+            k = ks[argmax(abs2.(H_k_bog.U_bog[:, i]))]
+            scatter!(pl_disp, [fold(k)], [real.(e)/J];
+                color = :crimson,
+                marker = :circle,
+                markersize = 6,
+                markerstrokewidth = 0,
+                label = label,
+            )
+        end
+        display(pl_disp)
+    end
 end
-gaps
-plot(gaps)
-plot(real.(H_k_bog.spectrum)[1:L])
+
+# --- Gaps plot ---
+pl_gaps = plot(
+    Ls, gaps;
+    marker = :circle,
+    markersize = 6,
+    markerstrokewidth = 0,
+    color = :steelblue,
+    linewidth = 2,
+    xlabel = "L",
+    ylabel = "Gap  Δ",
+    title = "Bogoliubov Gap vs System Size  (J/U=$(J/U))",
+    framestyle = :box,
+    legend = false,
+    grid = true,
+    gridalpha = 0.3,
+    xticks = Ls,
+    ylims = (0, Inf),
+    size = (600, 400),
+    dpi = 150,
+);
+display(pl_gaps)
+
