@@ -44,13 +44,49 @@ function single_particle_matrix(O::MultipleFockOperator)
     return O_m
 end
 
-function single_particle_operator(M::Matrix{ComplexF64})
-    V = U1FockSpace((size(M)[1],), 1, 1)
+function single_particle_operator(M::Matrix{ComplexF64}, V::AbstractFockSpace=U1FockSpace((size(M)[1],), 1, 1))
     O = ZeroFockOperator()
     for i in axes(M,1), j in axes(M,2)
         O += M[i,j] * adag(V, i) * a(V, j)
     end
     return O
+end
+
+#### Hopping Hamiltonian ####
+
+function Hopping_Ham(V::AbstractFockSpace, latt::Lattice, t::Number)
+    function hop_filling(site_tuple)
+        s1, s2 = site_tuple
+        if s2 ∈ latt.NN_fwd[s1]
+            return -t 
+        elseif s2 ∈ latt.NN_bwd[s1]
+            return -conj(t) 
+        else
+            return false
+        end
+    end
+
+    t_kin = ManyBodyTensor_init(ComplexF64, V, 1, 1)
+    t_kin = fill_nbody_tensor(t_kin, latt, (hop_filling,); support=NN_tensor_indices(latt))
+    return nbody_Op(V, latt, t_kin)
+end
+
+function Hopping_Ham(V::AbstractFockSpace, latt::Lattice, ts::Vector)
+    neighbours = length(ts)
+    function hop_filling(site_tuple)
+        s1, s2 = site_tuple
+        if s2 ∈ latt.NN_fwd[s1]
+            return -t 
+        elseif s2 ∈ latt.NN_bwd[s1]
+            return -conj(t)  
+        else
+            return false
+        end
+    end
+
+    t_kin = ManyBodyTensor_init(ComplexF64, V, 1, 1)
+    t_kin = fill_nbody_tensor(t_kin, latt, (hop_filling,); support=NN_tensor_indices(latt))
+    return nbody_Op(V, latt, t_kin)
 end
 
 ############################################################

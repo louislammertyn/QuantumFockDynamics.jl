@@ -199,7 +199,7 @@ for l in Ls
             linewidth = 2,
             label = "analytical",
             xlabel = "k",
-            ylabel = "E(k) (ħJ)",
+            ylabel = "E(k) (J)",
             title = "Bogoliubov Dispersion  (L=$l, J/U=$(J/U))",
             framestyle = :box,
             xticks = ([0, π/2, π], ["0", "π/2", "π"]),

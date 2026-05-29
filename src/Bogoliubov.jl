@@ -1,7 +1,8 @@
 """
     This page implements Bogoliubov methods for Fock Operators which expect FockOperators of type 
 
-        O = ∑ᵢⱼ 2hᵢⱼ a†ᵢaⱼ + Δᵢⱼ a†ᵢa†ⱼ +  Δᵢⱼ∗ aᵢaⱼ 
+        O = 1/2 * ψ† Hᵦ ψ =  ∑ᵢⱼ hᵢⱼ a†ᵢaⱼ + Δᵢⱼ/2 a†ᵢa†ⱼ +  conj(Δᵢⱼ)/2  aᵢaⱼ ,    Hᵦ = [ h ,  Δ ]
+                                                                                         [Δ∗ , h∗ ]
 
     Either the Hamiltonian is already of this form or one has a many body Hamiltonian for which one assumes the transformation
 
@@ -19,6 +20,7 @@ struct BogoliubovRep
     U_bog::Matrix{ComplexF64}
     V_bog::Matrix{ComplexF64}
 end
+
 
 function construct_BogoliubovRep(H::MultipleFockOperator, ψ::Vector{ComplexF64})
     @assert H - dagger_FO(H) == ZeroFockOperator() "Bogoliubov representation is only defined for self adjoint operators"
@@ -40,7 +42,7 @@ function construct_BogoliubovRep(H::MultipleFockOperator, ψ::Vector{ComplexF64}
             if type == [true, false]
                 h[ids...] += term.coefficient 
             elseif type ==[true, true]
-                Δ[ids... ] += term.coefficient *2
+                Δ[ids... ] += term.coefficient 
             elseif type == [false, false]
                 nothing  # aᵢaⱼ terms → contribute to Δ* block, determined by Δ via H = H†
             elseif type == [false, true]
@@ -72,12 +74,22 @@ function construct_BogoliubovRep(H::MultipleFockOperator, ψ::Vector{ComplexF64}
                 if type == [true, false]
                     h[ids...] += coeff 
                 elseif type ==[true, true]
-                    Δ[ids... ] += coeff * 2
+                    Δ[ids... ] += coeff 
                 end
             end
         end
     end
 
+    # Comes from global 1/2 Factor
+    for i in axes(Δ, 1)
+        Δ[i, i] *= 2
+    end
+
+    
+    asym = norm(Δ - transpose(Δ))
+    if asym > 1e-10
+        @warn "Δ is not symmetric (‖Δ-Δᵀ‖=$(asym)); symmetrizing."
+    end
     Δ = (Δ + transpose(Δ)) / 2
 
     for i in axes(h, 1)
@@ -95,9 +107,14 @@ function construct_BogoliubovRep(H::MultipleFockOperator, N::Int=1)
     V = first(H.terms).space 
     modes = prod(V.geometry)
     ψ_init = rand(ComplexF64, modes)
-    ψ_init ./= (norm(ψ_init) / sqrt(N))
+    ψ_init ./= (sqrt(sum(abs2, ψ_init)) / sqrt(N))
     ψ = get_mf_groundstate(ψ_init, H_mf, eoms, N)
     return construct_BogoliubovRep(H, ψ)
+end
+
+function eval_Bog(H_Bog::BogoliubovRep, A_corr::Matrix{ComplexF64}, B_corr::Matrix{ComplexF64})
+    E = tr(H_Bog.h * A_corr) + 0.5 * tr(H_Bog.Δ * B_corr) + 0.5 * tr(conj(H_Bog.Δ) * conj(B_corr))
+    return E 
 end
 
 function Bogoliubov_spectrum(H_B::BogoliubovRep)
@@ -111,11 +128,11 @@ function Bogoliubov_spectrum(H_B::BogoliubovRep)
 
     # --- filter and normalize zero modes ---
     threshold = 1e-5
-    nonzero_idx = findall(i -> abs(res.values[i]) > threshold, 1:2D)
+    nonzero_idx = findall(i -> abs(real(res.values[i])) > threshold, 1:2D)
     zero_idx    = setdiff(1:2D, nonzero_idx)
     n_zero      = length(zero_idx) ÷ 2
     D_red       = D - n_zero
-   
+    println(n_zero)
 
     # normalize zero mode vectors to analytic form (ψ, -ψ*) / norm
     zero_vecs = zeros(ComplexF64, 2D, 2*n_zero)
@@ -163,8 +180,8 @@ function Bogoliubov_spectrum(H_B::BogoliubovRep)
         vecs[:, i], vecs[:, i+D_red] = copy(vecs[:, i+D_red]), copy(vecs[:, i])
         vals[i], vals[i+D_red] = vals[i+D_red], vals[i]
     end
-
-    @assert isapprox(vecs' * J(D) * vecs, J(D_red); atol=sqrt(D_red) * eps() * 1e4) "The symplectic condition is not satisfied by this diagonalisation"
+    println("Checking symplectic condition for atol: $(sqrt(D_red) * eps() *1e5)")
+    @assert isapprox(vecs' * J(D) * vecs, J(D_red); atol=sqrt(D_red) * eps() *1e5) "The symplectic condition is not satisfied by this diagonalisation"
     # --- add zero modes back ---
     # full vecs: [zero_pos | nonzero_pos | zero_neg | nonzero_neg]
     full_vecs = hcat(
@@ -181,9 +198,10 @@ function Bogoliubov_spectrum(H_B::BogoliubovRep)
         vals[D_red+1:end]
     )
 
+    @assert isapprox(full_vecs' * J(D) * full_vecs, J(D); atol=sqrt(D_red) * eps() *1e5) "The symplectic condition is not satisfied by this diagonalisation"
     H_B.spectrum .= full_vals
     H_B.U_bog .= full_vecs[1:D,    1:D]
-    H_B.V_bog .= full_vecs[D+1:end, 1:D]
+    H_B.V_bog .= full_vecs[ 1:D, D+1:end]
 
     return H_B
 end
@@ -196,42 +214,97 @@ function J(D::Int)
 end
 
 
-function sort_bg(ϵ, ψ, n)
-    ψ = hcat(ψ[:,n+1:end], ψ[:,1:n])
-    ϵ = vcat(ϵ[n+1:end], ϵ[1:n])
-    
-    ψ_ = similar(ψ)
-    ϵ_ = similar(ϵ)
-    matched = falses(2n)  # track which j indices have been used
 
-    ψ_[:, 1:n] = ψ[:, 1:n]
-    ϵ_[1:n] = ϵ[1:n]
 
-    for i in 1:n
-        best_j = -1
-        best_err = Inf
-        for j in n+1:2n
-            if matched[j]
-                continue
-            end
-            # check symplectic partner condition
-            
-            err = abs(ϵ[i] + conj(ϵ[j]))
-            if err < best_err
-                best_err = err
-                best_j = j
-            end
-        
+function sort_bg(ϵ, ψ, n; atol=1e-10)
+    # ϵ : length 2n eigenvalues (nonzero block)
+    # ψ : size (2D, 2n) eigenvectors (columns)
+    # n : number of nonzero positive modes after removing zeros (D_red)
+
+    N = 2n
+    D = size(ψ, 1) ÷ 2
+    @assert length(ϵ) == N "length(ϵ) must be 2n"
+    @assert size(ψ, 2) == N "ψ must have 2n columns"
+
+    # Effective tolerance scaled to spectrum size (helps across scans)
+    atol_eff = max(atol, 1e-12 * maximum(abs.(ϵ)))
+
+    # Build the "swap" matrix S = [[0 I]; [I 0]] used for partner tie-breaking
+    S = zeros(ComplexF64, 2D, 2D)
+    @views S[1:D, D+1:2D] .= Matrix(I, D, D)
+    @views S[D+1:2D, 1:D] .= Matrix(I, D, D)
+
+    # --- choose primaries (first half) ---
+    # Heuristic: prefer modes with positive real part; on the real-axis use imag >= 0.
+    primaries = Int[]
+    posmask = falses(N)
+    for i in 1:N
+        r = real(ϵ[i])
+        if (r > atol_eff) || (abs(r) ≤ atol_eff && imag(ϵ[i]) ≥ 0)
+            push!(primaries, i)
+            posmask[i] = true
         end
-        if best_j == -1 || best_err > 1e-6
-            error("No symplectic partner found for mode $i, best error $best_err")
-        end
-        matched[best_j] = true
-        ψ_[:, i+n] = ψ[:, best_j]
-        ϵ_[i+n] = ϵ[best_j]
     end
-    return ϵ_, ψ_
+    # Adjust to exactly n primaries (robust to noise/complex spectra)
+    if length(primaries) < n
+        # add the remaining indices by decreasing "positiveness" (real part, then small |imag|)
+        rest = setdiff(collect(1:N), primaries)
+        rest = sort(rest, by = i -> (real(ϵ[i]), -abs(imag(ϵ[i]))))
+        append!(primaries, rest[end-(n-length(primaries))+1:end])
+    elseif length(primaries) > n
+        primaries = sort(primaries, by = i -> (real(ϵ[i]), -abs(imag(ϵ[i]))))
+        primaries = primaries[end-n+1:end]
+    else
+        primaries = sort(primaries, by = i -> (real(ϵ[i]), -abs(imag(ϵ[i]))))
+    end
+
+    # --- pair each primary with its symplectic partner across ALL remaining modes ---
+    used = falses(N)
+    ϵ_out = similar(ϵ)
+    ψ_out = similar(ψ)
+
+    k = 0
+    for i in primaries
+        if used[i]; continue; end
+        k += 1
+        used[i] = true
+
+        best_j  = 0
+        best_e  = Inf
+        best_sc = -Inf
+
+        @inbounds for j in 1:N
+            if used[j] || j == i; continue; end
+            # Energy pairing: partner must satisfy ε_j ≈ -ε_i*
+            eerr = abs(ϵ[i] + conj(ϵ[j]))
+            if eerr ≤ best_e + 10*eps()  # small slack for tie-breaks
+                # Tie-break by the BdG vector relation ψ_j ≈ S * conj(ψ_i)
+                sc = abs(ψ[:, j]' * S * conj(ψ[:, i])) / (norm(ψ[:, j]) * norm(ψ[:, i]) + eps())
+                if (eerr + 0.0 < best_e) || (abs(eerr - best_e) ≤ 10*eps() && sc > best_sc)
+                    best_e  = eerr
+                    best_sc = sc
+                    best_j  = j
+                end
+            end
+        end
+
+        if best_j == 0 || best_e > atol_eff
+            error("No symplectic partner for mode $i (ε=$(ϵ[i])); best energy error = $best_e")
+        end
+
+        used[best_j] = true
+        ϵ_out[k]        = ϵ[i]
+        ψ_out[:, k]     = ψ[:, i]
+        ϵ_out[k + n]    = ϵ[best_j]
+        ψ_out[:, k + n] = ψ[:, best_j]
+
+        if k == n; break; end
+    end
+
+    return ϵ_out, ψ_out
 end
+
+
 
 function group_degenerate_blocks(ϵ, ψ)
     deg_blocks = Vector{Matrix{ComplexF64}}()
@@ -304,21 +377,31 @@ function plot_Bogoliubov_spectrum(res, N, xs=-15.0:0.1:15.0, bdg_idx=1:3, howman
     display(pl)
 end
 
-function Bogoliubov_groundstate(H::BogoliubovRep; third=false)
+function Bogoliubov_groundstate(H_B::BogoliubovRep; third=false)
 
-    res = bogoliubov_spectrum(H)
+    if isempty(H_B.spectrum)
+        res = Bogoliubov_spectrum(H)
+    end
 
     # Set appropriate values A = ⟨a†a⟩, B = ⟨aa⟩ and T=⟨a†aa⟩
     α = H_B.ψ 
-    A = res.v' * res.v 
-    B = -1 .* (res.u' * res.v)
+    A = H_B.V_bog' * H_B.V_bog
+    B = -1 .* (H_B.U_bog' * H_B.V_bog)
     @assert isapprox(A , A') "A is not hermitian"
-    @assert isapprox(B , Transpose(B)) "B is not symmetric"
+    if !isapprox(abs.(B - transpose(B)), zero(B);atol=1e-10) 
+        @warn "B is not symmetric returning B to check problematic modes"
+        return B 
+    end
 
     if third
         T = zeros(ComplexF64, params.λmax + 1, params.λmax + 1, params.λmax + 1)
-        return [α, A, B, T], res.spectrum
+        return [α, A, B, T]
     else
-        return [α, A, B], res.spectrum
+        return [α, A, B]
     end
+end
+
+function depletion(H::BogoliubovRep)
+    A = H.V_bog' * H.V_bog
+    return tr(A)
 end

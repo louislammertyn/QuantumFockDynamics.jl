@@ -31,9 +31,11 @@ export Time_Evolution_ed,
        schrodinger!,
        Time_Evolution_TD,
        Time_Evolution_TD_VN,
+       Time_Evolution_TDM_VN,
        schrodinger_TD!,
        Heisenberg_eom,
        Von_Neumann!,
+       Von_Neumann_TDM!
        Unitary_Ev,
        Unitary_Ev_TD,
        Unitary_Ev_Op,
@@ -45,7 +47,7 @@ export Time_Evolution_ed,
 export a, adag, ni
 export single_particle_matrix, single_particle_sector, single_particle_operator
 export density_onsite, center_of_mass, one_body_ρ, density_flucs, momentum_density
-export Bose_Hubbard_H, delta, momentum_space_Op, bloch_matrix
+export Hopping_Ham, Bose_Hubbard_H, delta, momentum_space_Op, bloch_matrix
 
 #####################################################################################################
 #####################################################################################################
@@ -70,8 +72,8 @@ export get_μ
 #####################################################################################################
 #####################################################################################################
 
-export BogoliubovRep, construct_BogoliubovRep, Bogoliubov_spectrum, sort_bg, Bogoliubov_gs, plot_Bogoliubov_spectrum
-export J 
+export BogoliubovRep, construct_BogoliubovRep, eval_Bog, Bogoliubov_spectrum, sort_bg, Bogoliubov_gs, plot_Bogoliubov_spectrum
+export J, depletion
 
 #####################################################################################################
 #####################################################################################################
