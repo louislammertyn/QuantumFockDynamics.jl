@@ -243,22 +243,7 @@ function Heisenberg_eom(H::AbstractFockOperator, O::AbstractFockOperator)
     return 1im * RHS
 end
 
-function Von_Neumann!(dψ, ψ, (tmp, Op), t)
-    N = size(Ops[1], 1)
-    O = reshape(ψ, N, N)
-    dρ = reshape(dψ, N, N)
-    fill!(dψ, 0.0 + 0.0im)
 
-    α = -1im
-
-    mul!(tmp, Op, O)
-    axpy!(α, tmp, dρ)        # dρ += α * tmp  (no allocation)
-
-    mul!(tmp, O, H)          # tmp = O*H
-    axpy!(-α, tmp, dρ) 
-
-    return nothing
-end
 
 function Von_Neumann_TD!(dψ, ψ, (tmp, Ops, f_ts), t)
     N = size(Ops[1], 1)
@@ -339,15 +324,6 @@ function Time_Evolution_TD(init::Vector{ComplexF64},
     return Time_Evolution_TD(init, Tuple(ops_tr_rep), f_ts, tspan, tpoints; rtol=rtol, atol=atol, solver=solver) 
 end
 
-function Time_Evolution_VN(init::Matrix{ComplexF64},
-                           Op::Matrix{ComplexF64},
-                           tspan::Tuple{Float64, Float64}, tpoints::NTuple{M, Float64};
-                           rtol::Float64 = 1e-9, atol::Float64 = 1e-9,
-                           solver = Vern7()) where {N, M}
-    prob = ODEProblem(Von_Neumann_TD!, init, tspan, (similar(init), Op))
-    sol = solve(prob, solver; reltol=rtol, abstol=atol, save_everystep=false, saveat=tpoints)
-    return sol
-end
 
 function Time_Evolution_TD_VN(init::Matrix{ComplexF64},
                            ops::NTuple{N, AbstractMatrix{ComplexF64}}, f_ts::Tuple{Vararg{<:Function, N}},
